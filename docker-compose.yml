@@ -1,0 +1,172 @@
+version: "3.9"
+
+networks:
+  pumpdesk:
+    driver: bridge
+
+volumes:
+  state:
+  redis-data:
+
+services:
+
+  # ── INFRASTRUCTURE ────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    container_name: pumpdesk-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes: [redis-data:/data]
+    networks: [pumpdesk]
+
+  nginx:
+    image: nginx:alpine
+    container_name: pumpdesk-nginx
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on: [orchestrator]
+    networks: [pumpdesk]
+
+  # ── ORCHESTRATOR ──────────────────────────────────────────────
+
+  orchestrator:
+    build: ./orchestrator
+    container_name: pumpdesk-orchestrator
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis]
+    volumes:
+      - state:/app/state
+      - ./shared:/app/shared:ro
+    networks: [pumpdesk]
+    expose: ["8765"]
+
+  # ── TRADING BOTS (reactive) ───────────────────────────────────
+
+  graduation_sniper:
+    build: ./graduation_sniper
+    container_name: pumpdesk-sniper
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  wallet_copier:
+    build: ./wallet_copier
+    container_name: pumpdesk-copier
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  curve_arb:
+    build: ./curve_arb
+    container_name: pumpdesk-arb
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  momentum_scanner:
+    build: ./momentum_scanner
+    container_name: pumpdesk-momentum
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  # ── CREATOR BOTS (generative) ─────────────────────────────────
+
+  token_launcher:
+    build: ./token_launcher
+    container_name: pumpdesk-launcher
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  volume_bot:
+    build: ./volume_bot
+    container_name: pumpdesk-volume
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  anti_sniper:
+    build: ./anti_sniper
+    container_name: pumpdesk-antisniper
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  # ── INTELLIGENCE ENGINES ──────────────────────────────────────
+
+  progressive_exit:
+    build: ./engines/progressive_exit
+    container_name: pumpdesk-exit
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  creator_judge:
+    build: ./engines/creator_judge
+    container_name: pumpdesk-judge
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  social_aggregator:
+    build: ./engines/social_aggregator
+    container_name: pumpdesk-social
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  graduation_oracle:
+    build: ./engines/graduation_oracle
+    container_name: pumpdesk-oracle
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  lp_farmer:
+    build: ./engines/lp_farmer
+    container_name: pumpdesk-farmer
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  # ── EXECUTION ENGINE ──────────────────────────────────────────
+
+  executor:
+    build: ./execution
+    container_name: pumpdesk-executor
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
