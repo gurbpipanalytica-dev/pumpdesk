@@ -1,0 +1,7 @@
+redis[hiredis]>=5.0
+aiohttp>=3.9
+websockets>=12.0
+solders>=0.21
+solana>=0.34
+base58>=2.1
+supabase>=2.0
