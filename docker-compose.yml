@@ -20,18 +20,7 @@ services:
     volumes: [redis-data:/data]
     networks: [pumpdesk]
 
-  nginx:
-    image: nginx:alpine
-    container_name: pumpdesk-nginx
-    restart: unless-stopped
-    ports: ["80:80", "443:443"]
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-    depends_on: [orchestrator]
-    networks: [pumpdesk]
-
-  # ── ORCHESTRATOR ──────────────────────────────────────────────
+  # ── ORCHESTRATOR (exposed on host port 8766) ──────────────────
 
   orchestrator:
     build: ./orchestrator
@@ -43,7 +32,7 @@ services:
       - state:/app/state
       - ./shared:/app/shared:ro
     networks: [pumpdesk]
-    expose: ["8765"]
+    ports: ["8766:8765"]
 
   # ── TRADING BOTS (reactive) ───────────────────────────────────
 
@@ -106,6 +95,35 @@ services:
   anti_sniper:
     build: ./anti_sniper
     container_name: pumpdesk-antisniper
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  # ── MEV + DEFI ────────────────────────────────────────────────
+
+  jito_backrunner:
+    build: ./jito_backrunner
+    container_name: pumpdesk-backrunner
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  liquidation_bot:
+    build: ./liquidation_bot
+    container_name: pumpdesk-liquidator
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [redis, orchestrator]
+    volumes: [state:/app/state, ./shared:/app/shared:ro]
+    networks: [pumpdesk]
+
+  yield_optimizer:
+    build: ./yield_optimizer
+    container_name: pumpdesk-yield
     restart: unless-stopped
     env_file: .env
     depends_on: [redis, orchestrator]

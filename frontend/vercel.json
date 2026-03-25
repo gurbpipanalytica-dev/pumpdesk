@@ -1,7 +1,15 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://api.gurbcapital.com/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/status", "destination": "https://api.gurbcapital.com:8766/status" },
+    { "source": "/positions", "destination": "https://api.gurbcapital.com:8766/positions" },
+    { "source": "/trades", "destination": "https://api.gurbcapital.com:8766/trades" },
+    { "source": "/hot-tokens", "destination": "https://api.gurbcapital.com:8766/hot-tokens" },
+    { "source": "/assessment", "destination": "https://api.gurbcapital.com:8766/assessment" },
+    { "source": "/bots", "destination": "https://api.gurbcapital.com:8766/bots" },
+    { "source": "/launched-tokens", "destination": "https://api.gurbcapital.com:8766/launched-tokens" },
+    { "source": "/config", "destination": "https://api.gurbcapital.com:8766/config" },
+    { "source": "/blacklist/:path*", "destination": "https://api.gurbcapital.com:8766/blacklist/:path*" },
+    { "source": "/health", "destination": "https://api.gurbcapital.com:8766/health" }
   ]
 }
 
