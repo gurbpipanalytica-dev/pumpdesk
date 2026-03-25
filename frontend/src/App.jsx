@@ -493,66 +493,154 @@ function SettingsPage({bots,riskSettings,setRiskSettings,status}){
 }
 
 
+
+
 // ═══════════════════════════════════════════════════════════════════════════
-//  MAIN APP — fully wired state management
+//  UTILITIES — Solscan links, clipboard, CSV export
 // ═══════════════════════════════════════════════════════════════════════════
-const NAV=[{id:"overview",label:"Overview",icon:"▦"},{id:"bots",label:"Bots",icon:"⚡"},{id:"launcher",label:"Launcher",icon:"△"},{id:"intel",label:"Intelligence",icon:"✦"},{id:"crm",label:"CRM",icon:"⊕"},{id:"settings",label:"Settings",icon:"⚙"}];
+const SOL="https://solscan.io";
+function SolscanMint({mint,short=5}){const{B}=useTheme();if(!mint)return<span style={{color:B.muted}}>—</span>;return<a href={`${SOL}/token/${mint}`} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{color:B.teal,textDecoration:"none",fontFamily:"'JetBrains Mono',monospace",fontSize:11}} title={mint}>{f.addr(mint,short)}</a>;}
+function SolscanTx({sig}){if(!sig)return null;return<a href={`${SOL}/tx/${sig}`} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{color:DARK.amber,textDecoration:"none",fontSize:10}}>↗tx</a>;}
+function CopyBtn({text}){const[ok,setOk]=useState(false);if(!text)return null;return<button onClick={e=>{e.stopPropagation();navigator.clipboard?.writeText(text);setOk(true);setTimeout(()=>setOk(false),1500);}} style={{background:"none",border:"none",color:ok?DARK.green:DARK.muted,fontSize:10,padding:"0 4px",cursor:"pointer"}} title="Copy">{ok?"✓":"⎘"}</button>;}
+function exportCSV(rows,filename){if(!rows?.length)return;const keys=Object.keys(rows[0]);const csv=[keys.join(","),...rows.map(r=>keys.map(k=>{const v=r[k];return typeof v==="string"&&v.includes(",")?`"${v}"`:v??"";}).join(","))].join("\n");const b=new Blob([csv],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=filename;a.click();}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  POSITION DETAIL MODAL
+// ═══════════════════════════════════════════════════════════════════════════
+function PositionModal({pos,onClose}){
+  const{B}=useTheme();if(!pos)return null;
+  const mult=pos.entry_price_sol>0?(pos.current_price_sol/pos.entry_price_sol):0;
+  return<><div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150}}/><div style={{position:"fixed",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:520,maxHeight:"80vh",background:B.surf,border:`1px solid ${B.border}`,borderRadius:16,boxShadow:"0 24px 80px rgba(0,0,0,0.5)",zIndex:151,overflow:"auto",animation:"in 0.2s both"}}>
+    <div style={{padding:"18px 22px",borderBottom:`1px solid ${B.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div><div style={{fontSize:14,fontWeight:600}}>Position Detail</div><div style={{fontSize:11,color:B.muted}}>{pos.bot} · {pos.side}</div></div>
+      <button onClick={onClose} style={{background:"none",border:"none",color:B.muted,fontSize:18}}>✕</button>
+    </div>
+    <div style={{padding:22}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+        <div><div style={{fontSize:10,color:B.muted,marginBottom:3}}>MINT</div><div style={{display:"flex",alignItems:"center",gap:4}}><SolscanMint mint={pos.mint} short={8}/><CopyBtn text={pos.mint}/></div></div>
+        <div><div style={{fontSize:10,color:B.muted,marginBottom:3}}>STATUS</div><StatusBadge status={pos.status}/></div>
+        <div><div style={{fontSize:10,color:B.muted,marginBottom:3}}>ENTRY</div><div className="num" style={{fontSize:14,fontWeight:600}}>{f.sol(pos.entry_price_sol,8)} SOL</div></div>
+        <div><div style={{fontSize:10,color:B.muted,marginBottom:3}}>CURRENT</div><div className="num" style={{fontSize:14,fontWeight:600,color:mult>1?B.green:mult<1?B.red:B.text}}>{f.sol(pos.current_price_sol,8)} SOL</div></div>
+        <div><div style={{fontSize:10,color:B.muted,marginBottom:3}}>SIZE</div><div className="num" style={{fontSize:14,fontWeight:600}}>{f.sol(pos.size_sol,4)} SOL</div></div>
+        <div><div style={{fontSize:10,color:B.muted,marginBottom:3}}>MULTIPLIER</div><div className="num" style={{fontSize:20,fontWeight:700,color:mult>1?B.green:mult<1?B.red:B.muted}}>{mult>0?`${mult.toFixed(2)}×`:"—"}</div></div>
+        <div><div style={{fontSize:10,color:B.muted,marginBottom:3}}>UNREALIZED</div><PnL value={pos.unrealized_pnl_sol}/></div>
+        <div><div style={{fontSize:10,color:B.muted,marginBottom:3}}>REALIZED</div><PnL value={pos.realized_pnl_sol}/></div>
+        <div><div style={{fontSize:10,color:B.muted,marginBottom:3}}>AGE</div><div style={{fontSize:11}}>{f.age(pos.opened_at)} ({f.time(pos.opened_at)})</div></div>
+      </div>
+      {pos.exit_stages_remaining?.length>0&&<div style={{marginBottom:14}}>
+        <div style={{fontSize:10,color:DARK.amber,fontWeight:700,textTransform:"uppercase",marginBottom:6}}>Exit Plan Remaining</div>
+        {pos.exit_stages_remaining.map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:11,color:B.sub}}>
+          <span>Stage {i+1}: <span style={{color:B.text}}>{s.trigger||s.multiplier}×</span></span>
+          <span className="num" style={{color:B.green}}>sell {s.sell||s.pct}%</span>
+        </div>)}
+      </div>}
+      {pos.tx_signatures?.length>0&&<div>
+        <div style={{fontSize:10,color:B.muted,marginBottom:4}}>TRANSACTIONS</div>
+        {pos.tx_signatures.map((sig,i)=><div key={i} style={{marginBottom:2}}><SolscanTx sig={sig}/> <span className="num" style={{fontSize:10,color:B.dim}}>{f.addr(sig,10)}</span><CopyBtn text={sig}/></div>)}
+      </div>}
+    </div>
+  </div></>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PAGE: TRADES — full history with filters, search, pagination, CSV
+// ═══════════════════════════════════════════════════════════════════════════
+function TradesPage({allTrades,bots}){
+  const{B,M}=useTheme();
+  const[botFilter,setBotFilter]=useState("all");
+  const[actionFilter,setActionFilter]=useState("all");
+  const[search,setSearch]=useState("");
+  const[pg,setPg]=useState(0);
+  const perPage=25;
+  const filtered=allTrades.filter(t=>{
+    if(botFilter!=="all"&&t.bot!==botFilter)return false;
+    if(actionFilter!=="all"&&t.action!==actionFilter)return false;
+    if(search){const s=search.toLowerCase();if(!((t.mint||"").toLowerCase().includes(s)||(t.bot||"").toLowerCase().includes(s)||(t.reason||"").toLowerCase().includes(s)))return false;}
+    return true;
+  });
+  const totalPages=Math.ceil(filtered.length/perPage);
+  const rows=filtered.slice(pg*perPage,(pg+1)*perPage);
+  const totalPnl=filtered.reduce((s,t)=>s+(t.realized_pnl_sol||0),0);
+  const sells=filtered.filter(t=>t.action==="sell");
+  const wins=sells.filter(t=>(t.realized_pnl_sol||0)>0).length;
+
+  return<div className="in">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+        <select value={botFilter} onChange={e=>{setBotFilter(e.target.value);setPg(0);}} style={{padding:"6px 10px",background:B.surf2,border:`1px solid ${B.border}`,borderRadius:6,color:B.text,fontSize:11}}>
+          <option value="all">All Bots</option>{bots.map(b=><option key={b.key} value={b.key}>{b.name}</option>)}
+        </select>
+        <select value={actionFilter} onChange={e=>{setActionFilter(e.target.value);setPg(0);}} style={{padding:"6px 10px",background:B.surf2,border:`1px solid ${B.border}`,borderRadius:6,color:B.text,fontSize:11}}>
+          <option value="all">All</option><option value="buy">Buys</option><option value="sell">Sells</option>
+        </select>
+        <div style={{position:"relative"}}><input value={search} onChange={e=>{setSearch(e.target.value);setPg(0);}} placeholder="Search..." style={{padding:"6px 10px 6px 24px",background:B.surf2,border:`1px solid ${B.border}`,borderRadius:6,color:B.text,fontSize:11,width:180,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box"}}/><span style={{position:"absolute",left:8,top:7,fontSize:10,color:B.dim}}>⌕</span></div>
+      </div>
+      <div style={{display:"flex",gap:10,alignItems:"center",fontSize:11}}>
+        <span style={{color:B.muted}}>{filtered.length} trades</span>
+        <span>P&L: <PnL value={totalPnl}/></span>
+        <span style={{color:B.muted}}>Win: <span style={{color:sells.length>0&&wins/sells.length>.5?B.green:B.amber}}>{sells.length?`${(wins/sells.length*100).toFixed(0)}%`:"—"}</span></span>
+        <button onClick={()=>exportCSV(filtered,`pumpdesk-trades-${new Date().toISOString().slice(0,10)}.csv`)} style={{padding:"5px 10px",background:B.surf2,border:`1px solid ${B.border}`,borderRadius:6,color:B.muted,fontSize:10,fontWeight:600}}>CSV ↓</button>
+      </div>
+    </div>
+    <Card style={{padding:0,overflow:"hidden"}}>
+      <Table cols={[
+        {label:"Time",render:r=><span className="num" style={{fontSize:10}}>{f.time(r.created_at)}<br/><span style={{color:B.dim}}>{f.date(r.created_at)}</span></span>},
+        {label:"Bot",render:r=>{const b=bots.find(x=>x.key===r.bot);return<span style={{color:b?.color||B.sub,fontWeight:600,fontSize:11}}>{b?.name?.split(" ")[0]||r.bot}</span>;}},
+        {label:"Action",render:r=><Badge color={r.action==="buy"?B.green:B.red}>{r.action}</Badge>},
+        {label:"Mint",render:r=><span style={{display:"flex",alignItems:"center",gap:3}}><SolscanMint mint={r.mint}/><CopyBtn text={r.mint}/></span>,mono:true},
+        {label:"Size",render:r=>f.sol(r.size_sol,3),align:"right",mono:true},
+        {label:"Price",render:r=>f.sol(r.price_sol,8),align:"right",mono:true},
+        {label:"P&L",render:r=><PnL value={r.realized_pnl_sol}/>,align:"right"},
+        {label:"Reason",render:r=><span style={{fontSize:10,color:B.muted,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}} title={r.reason}>{r.reason||"—"}</span>},
+        {label:"",render:r=><SolscanTx sig={r.tx_signature}/>,align:"center"},
+      ]} rows={rows} empty="No trades match filters"/>
+    </Card>
+    {totalPages>1&&<div style={{display:"flex",justifyContent:"center",gap:4,marginTop:14}}>
+      <button onClick={()=>setPg(p=>Math.max(0,p-1))} disabled={pg===0} style={{padding:"4px 10px",background:B.surf2,border:`1px solid ${B.border}`,borderRadius:6,color:pg===0?B.dim:B.text,fontSize:11}}>←</button>
+      <span className="num" style={{padding:"4px 10px",fontSize:11,color:B.muted}}>{pg+1}/{totalPages}</span>
+      <button onClick={()=>setPg(p=>Math.min(totalPages-1,p+1))} disabled={pg>=totalPages-1} style={{padding:"4px 10px",background:B.surf2,border:`1px solid ${B.border}`,borderRadius:6,color:pg>=totalPages-1?B.dim:B.text,fontSize:11}}>→</button>
+    </div>}
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MAIN APP — 7 pages, keyboard shortcuts, mobile sidebar, position modal
+// ═══════════════════════════════════════════════════════════════════════════
+const NAV=[{id:"overview",label:"Overview",icon:"▦"},{id:"bots",label:"Bots",icon:"⚡"},{id:"trades",label:"Trades",icon:"↕"},{id:"launcher",label:"Launcher",icon:"△"},{id:"intel",label:"Intelligence",icon:"✦"},{id:"crm",label:"CRM",icon:"⊕"},{id:"settings",label:"Settings",icon:"⚙"}];
 
 export default function PumpDesk(){
-  const [page,setPage]=useState("overview");
-  const [mode,setMode]=useState("paper");
-  const [status,setStatus]=useState(null);
-  const [positions,setPositions]=useState([]);
-  const [allTrades,setAllTrades]=useState([]);
-  const [hotTokens,setHotTokens]=useState([]);
-  const [assessment,setAssessment]=useState(null);
-  const [signals,setSignals]=useState([]);
-  const [launchStatus,setLaunchStatus]=useState(null);
-  const [wsOk,setWsOk]=useState(false);
-  const [selectedBot,setSelectedBot]=useState(null);
-  const [bots,setBots]=useState([]);
-  const [botsLoading,setBotsLoading]=useState(true);
-  const [period,setPeriod]=useState("ALL");
-  const [apiOk,setApiOk]=useState(null);
-  const [riskSettings,setRiskSettings]=useState({maxPos:"2.0",maxConcurrent:"5",maxDailyLoss:"5.0",emergencyPct:"30",exitStages:[{trigger:"2",sell:"50"},{trigger:"5",sell:"25"},{trigger:"10",sell:"15"}]});
+  const[page,setPage]=useState("overview");
+  const[mode,setMode]=useState("paper");
+  const[status,setStatus]=useState(null);
+  const[positions,setPositions]=useState([]);
+  const[allTrades,setAllTrades]=useState([]);
+  const[hotTokens,setHotTokens]=useState([]);
+  const[assessment,setAssessment]=useState(null);
+  const[signals,setSignals]=useState([]);
+  const[launchStatus,setLaunchStatus]=useState(null);
+  const[wsOk,setWsOk]=useState(false);
+  const[selectedBot,setSelectedBot]=useState(null);
+  const[selectedPos,setSelectedPos]=useState(null);
+  const[bots,setBots]=useState([]);
+  const[botsLoading,setBotsLoading]=useState(true);
+  const[period,setPeriod]=useState("ALL");
+  const[apiOk,setApiOk]=useState(null);
+  const[sb,setSb]=useState(true);
+  const[riskSettings,setRiskSettings]=useState({maxPos:"2.0",maxConcurrent:"5",maxDailyLoss:"5.0",emergencyPct:"30",exitStages:[{trigger:"2",sell:"50"},{trigger:"5",sell:"25"},{trigger:"10",sell:"15"}]});
   const wsRef=useRef(null);
   const B=DARK,M=MODE[mode];
 
-  const fetchAll=useCallback(async()=>{
-    try{
-      const [s,p,t,h,a,bo]=await Promise.allSettled([
-        fetch(API+"/status").then(r=>r.json()),
-        fetch(API+"/positions").then(r=>r.json()),
-        fetch(API+"/trades?limit=200").then(r=>r.json()),
-        fetch(API+"/hot-tokens").then(r=>r.json()),
-        fetch(API+"/assessment").then(r=>r.json()),
-        fetch(API+"/bots").then(r=>r.json()),
-      ]);
-      setApiOk(true);
-      if(s.status==="fulfilled")setStatus(s.value);
-      if(p.status==="fulfilled")setPositions(p.value?.positions||[]);
-      if(t.status==="fulfilled")setAllTrades(t.value?.trades||[]);
-      if(h.status==="fulfilled")setHotTokens(h.value?.tokens||[]);
-      if(a.status==="fulfilled")setAssessment(a.value);
-      if(bo.status==="fulfilled"&&bo.value?.bots){setBots(bo.value.bots);setBotsLoading(false);}
-    }catch{setApiOk(false);}
-  },[]);
+  // Keyboard: Esc close, 1-7 nav, b toggle sidebar
+  useEffect(()=>{const h=e=>{if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT"||e.target.tagName==="TEXTAREA")return;if(e.key==="Escape"){setSelectedBot(null);setSelectedPos(null);}if(e.key>="1"&&e.key<="7"){const i=parseInt(e.key)-1;if(NAV[i])setPage(NAV[i].id);}if(e.key==="b")setSb(p=>!p);};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[]);
+
+  const fetchAll=useCallback(async()=>{try{const[s,p,t,h,a,bo]=await Promise.allSettled([fetch(API+"/status").then(r=>r.json()),fetch(API+"/positions").then(r=>r.json()),fetch(API+"/trades?limit=500").then(r=>r.json()),fetch(API+"/hot-tokens").then(r=>r.json()),fetch(API+"/assessment").then(r=>r.json()),fetch(API+"/bots").then(r=>r.json())]);setApiOk(true);if(s.status==="fulfilled")setStatus(s.value);if(p.status==="fulfilled")setPositions(p.value?.positions||[]);if(t.status==="fulfilled")setAllTrades(t.value?.trades||[]);if(h.status==="fulfilled")setHotTokens(h.value?.tokens||[]);if(a.status==="fulfilled")setAssessment(a.value);if(bo.status==="fulfilled"&&bo.value?.bots){setBots(bo.value.bots);setBotsLoading(false);}}catch{setApiOk(false);}},[]);
 
   useEffect(()=>{let ws,rt;const connect=()=>{try{ws=new WebSocket(WS_URL);wsRef.current=ws;ws.onopen=()=>setWsOk(true);ws.onclose=()=>{setWsOk(false);rt=setTimeout(connect,3000);};ws.onerror=()=>ws.close();ws.onmessage=e=>{try{const msg=JSON.parse(e.data);setSignals(p=>[...p.slice(-300),msg]);if(msg.type==="assessment")setAssessment(msg.data);if(msg.type==="launch_status")setLaunchStatus(msg);if(msg.type==="decision")fetchAll();}catch{}};}catch{}};connect();return()=>{ws?.close();clearTimeout(rt);};},[fetchAll]);
   useEffect(()=>{fetchAll();const iv=setInterval(fetchAll,8000);return()=>clearInterval(iv);},[fetchAll]);
 
-  const handleLaunch=(fm)=>{if(wsRef.current?.readyState===1)wsRef.current.send(JSON.stringify({type:"launch",data:fm}));setLaunchStatus({status:"preparing",symbol:fm.symbol});};
+  const handleLaunch=fm=>{if(wsRef.current?.readyState===1)wsRef.current.send(JSON.stringify({type:"launch",data:fm}));setLaunchStatus({status:"preparing",symbol:fm.symbol});};
   const activeBots=bots.filter(b=>b.enabled).length;
-
-  // Filter trades by period
-  const filteredTrades=allTrades.filter(t=>{
-    if(period==="ALL")return true;
-    const d=new Date(t.created_at);const now=Date.now();
-    if(period==="1D")return now-d<864e5;
-    if(period==="7D")return now-d<6048e5;
-    if(period==="1M")return now-d<2592e6;
-    return true;
-  });
+  const filteredTrades=allTrades.filter(t=>{if(period==="ALL")return true;const d=new Date(t.created_at);const now=Date.now();if(period==="1D")return now-d<864e5;if(period==="7D")return now-d<6048e5;if(period==="1M")return now-d<2592e6;return true;});
 
   return <ThemeCtx.Provider value={{B,M}}>
     <div style={{display:"flex",minHeight:"100vh",background:B.bg,color:B.text,fontFamily:"'Outfit','Plus Jakarta Sans',sans-serif"}}>
@@ -569,41 +657,46 @@ export default function PumpDesk(){
         .nav-btn{transition:all 0.15s}.nav-btn:hover{background:${B.surf2}!important}
         .num{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;letter-spacing:-0.02em}
         .head{font-family:'Outfit',sans-serif;letter-spacing:-0.02em}
-        input:focus{outline:none;border-color:${M.accent}55!important}
-        select:focus{outline:none}
-        button{cursor:pointer;font-family:inherit}
+        input:focus,select:focus{outline:none;border-color:${M.accent}55!important}
+        button{cursor:pointer;font-family:inherit}a{text-decoration:none}
         ::selection{background:${M.accent}33}
+        @media(max-width:900px){.hide-mobile{display:none!important}.mobile-stack{grid-template-columns:1fr!important}}
       `}</style>
 
-      {/* Sidebar */}
-      <aside style={{width:210,flexShrink:0,background:B.surf,borderRight:`1px solid ${B.border}`,display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh"}}>
+      {/* Sidebar — collapsible */}
+      {sb&&<aside style={{width:210,flexShrink:0,background:B.surf,borderRight:`1px solid ${B.border}`,display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",zIndex:60}}>
         <div style={{padding:"18px 14px 14px",borderBottom:`1px solid ${B.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div style={{width:34,height:34,borderRadius:10,background:`linear-gradient(135deg,${DARK.amber},${DARK.teal})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 4px 14px ${M.accent}22`}}>
               <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5} strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
             </div>
-            <div><div className="head" style={{fontWeight:800,fontSize:15}}>PUMP<span style={{fontWeight:300}}>DESK</span></div><div style={{fontSize:10,color:B.muted,marginTop:2,display:"flex",alignItems:"center",gap:5}}><span style={{width:5,height:5,borderRadius:"50%",background:wsOk?B.green:apiOk===false?B.red:B.muted,animation:wsOk?"pulse 2s infinite":"none"}}/><span className="num">{wsOk?"live":apiOk===false?"offline":"connecting"}</span></div></div>
+            <div><div className="head" style={{fontWeight:800,fontSize:15}}>PUMP<span style={{fontWeight:300}}>DESK</span></div><div style={{fontSize:10,color:B.muted,marginTop:2,display:"flex",alignItems:"center",gap:5}}><span style={{width:5,height:5,borderRadius:"50%",background:wsOk?B.green:apiOk===false?B.red:B.muted,animation:wsOk?"pulse 2s infinite":"none"}}/><span className="num">{wsOk?"live":apiOk===false?"offline":"..."}</span></div></div>
           </div>
         </div>
         <nav style={{padding:"8px 6px",flex:1,overflowY:"auto"}}>
-          {NAV.map(item=>{const active=page===item.id;return<button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 10px",borderRadius:8,border:"none",background:active?M.accentSoft:"transparent",color:active?M.accentText:B.sub,fontSize:13,fontWeight:active?600:400,textAlign:"left",marginBottom:1}}>
+          {NAV.map((item,idx)=>{const active=page===item.id;return<button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 10px",borderRadius:8,border:"none",background:active?M.accentSoft:"transparent",color:active?M.accentText:B.sub,fontSize:13,fontWeight:active?600:400,textAlign:"left",marginBottom:1}}>
             <span style={{fontSize:13,width:18,textAlign:"center",flexShrink:0,filter:active?"none":"opacity(0.55)"}}>{item.icon}</span>{item.label}
-            {item.id==="bots"&&activeBots>0&&<span style={{marginLeft:"auto",fontSize:9,background:B.greenSoft,color:B.green,borderRadius:8,padding:"2px 6px",fontWeight:700}}>{activeBots}</span>}
-            {item.id==="intel"&&<span style={{marginLeft:"auto",fontSize:9,background:M.accentSoft,color:M.accentText,borderRadius:8,padding:"2px 6px",fontWeight:700}}>AI</span>}
+            <span style={{marginLeft:"auto",fontSize:8,color:B.dim,fontFamily:"'JetBrains Mono',monospace"}}>{idx+1}</span>
+            {item.id==="bots"&&activeBots>0&&<span style={{fontSize:9,background:B.greenSoft,color:B.green,borderRadius:8,padding:"2px 6px",fontWeight:700,marginLeft:2}}>{activeBots}</span>}
+            {item.id==="trades"&&allTrades.length>0&&<span style={{fontSize:9,background:B.surf2,color:B.muted,borderRadius:8,padding:"2px 5px",fontWeight:600,marginLeft:2}}>{allTrades.length}</span>}
+            {item.id==="intel"&&<span style={{fontSize:9,background:M.accentSoft,color:M.accentText,borderRadius:8,padding:"2px 6px",fontWeight:700,marginLeft:2}}>AI</span>}
           </button>;})}
         </nav>
-        <div style={{padding:"10px 14px",borderTop:`1px solid ${B.border}`,display:"flex",flexDirection:"column",gap:4}}>
-          <div style={{fontSize:10,color:B.dim,fontFamily:"'JetBrains Mono',monospace"}}>{new Date().toUTCString().slice(17,25)} UTC</div>
-          {apiOk===false&&<div style={{fontSize:9,color:B.red,fontWeight:600}}>API OFFLINE</div>}
+        <div style={{padding:"10px 14px",borderTop:`1px solid ${B.border}`}}>
+          <div style={{fontSize:9,color:B.dim,fontFamily:"'JetBrains Mono',monospace"}}>{new Date().toUTCString().slice(17,25)} UTC · <span style={{cursor:"pointer",textDecoration:"underline"}} onClick={()=>setSb(false)}>collapse [b]</span></div>
+          {apiOk===false&&<div style={{fontSize:9,color:B.red,fontWeight:600,marginTop:2}}>API OFFLINE</div>}
         </div>
-      </aside>
+      </aside>}
 
       {/* Main */}
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
         <header style={{height:54,borderBottom:`1px solid ${B.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 22px",background:B.surf,position:"sticky",top:0,zIndex:50,flexShrink:0}}>
-          <div><div className="head" style={{fontSize:14,fontWeight:600}}>{NAV.find(n=>n.id===page)?.label}</div><div style={{fontSize:10,color:B.muted,marginTop:1}}>{mode==="paper"?"Paper mode · simulated trades":"Live trading · real SOL deployed"}</div></div>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            {!sb&&<button onClick={()=>setSb(true)} style={{background:"none",border:"none",color:B.muted,fontSize:16,padding:0}}>☰</button>}
+            <div><div className="head" style={{fontSize:14,fontWeight:600}}>{NAV.find(n=>n.id===page)?.label}</div><div style={{fontSize:10,color:B.muted,marginTop:1}}>{mode==="paper"?"Paper · simulated":"Live · real SOL"}</div></div>
+          </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{display:"flex",alignItems:"center",gap:7,background:M.accentSoft,border:`1px solid ${M.accentBorder}`,borderRadius:8,padding:"5px 11px"}}>
+            <div className="hide-mobile" style={{display:"flex",alignItems:"center",gap:7,background:M.accentSoft,border:`1px solid ${M.accentBorder}`,borderRadius:8,padding:"5px 11px"}}>
               <span style={{fontSize:10,color:B.muted,letterSpacing:"0.06em",textTransform:"uppercase",fontWeight:500}}>{M.balanceLabel}</span>
               <span className="num" style={{fontSize:13,fontWeight:700,color:M.accentText}}>{f.sol(status?.total_exposure_sol||0,2)} SOL</span>
               {mode==="paper"&&<Badge color={DARK.amber}>PAPER</Badge>}
@@ -614,6 +707,7 @@ export default function PumpDesk(){
         <main style={{flex:1,padding:22,overflowY:"auto"}}>
           {page==="overview"&&<OverviewPage bots={bots} status={status} positions={positions} hotTokens={hotTokens} signals={signals} allTrades={filteredTrades} period={period} setPeriod={setPeriod}/>}
           {page==="bots"&&<BotsPage bots={bots} onSelectBot={setSelectedBot} loading={botsLoading}/>}
+          {page==="trades"&&<TradesPage allTrades={allTrades} bots={bots}/>}
           {page==="launcher"&&<LauncherPage launchStatus={launchStatus} onLaunch={handleLaunch}/>}
           {page==="intel"&&<IntelPage assessment={assessment} status={status}/>}
           {page==="crm"&&<CRMPage/>}
@@ -621,8 +715,10 @@ export default function PumpDesk(){
         </main>
       </div>
 
-      {/* Bot Drawer overlay */}
+      {/* Bot Drawer */}
       {selectedBot&&<><div onClick={()=>setSelectedBot(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99}}/><BotDrawer bot={selectedBot} onClose={()=>setSelectedBot(null)} signals={signals} allTrades={allTrades}/></>}
+      {/* Position Modal */}
+      {selectedPos&&<PositionModal pos={selectedPos} onClose={()=>setSelectedPos(null)}/>}
     </div>
   </ThemeCtx.Provider>;
 }
