@@ -245,6 +245,84 @@ async def hot_tokens():
     return {"tokens": correlator.get_hot_tokens()}
 
 
+
+@app.get("/bots")
+async def get_bots():
+    """Per-bot stats for dashboard. Derives P&L, trades, win rate from Supabase."""
+    BOT_IDS = {
+        "graduation_sniper": {"id": 1, "name": "Graduation Sniper", "color": "#34d399", "strategy": "Bonding curve graduation detection"},
+        "wallet_copier": {"id": 2, "name": "Wallet Copier", "color": "#2ec4b6", "strategy": "Mirror smart money wallets"},
+        "multi_dex_arb": {"id": 3, "name": "Multi-DEX Arb", "color": "#f0a030", "strategy": "Cross-DEX price discrepancy"},
+        "momentum_scanner": {"id": 4, "name": "Momentum Scanner", "color": "#4c9eeb", "strategy": "Volume + price velocity detection"},
+        "token_launcher": {"id": 5, "name": "Token Launcher", "color": "#fbbf24", "strategy": "Create + Jito bundle launch"},
+        "volume_bot": {"id": 6, "name": "Volume Bot", "color": "#64748b", "strategy": "Anti-MEV same-block buy+sell"},
+        "anti_sniper": {"id": 7, "name": "Anti-Sniper Trap", "color": "#f87171", "strategy": "Bait token > sell into sniper buys"},
+        "jito_backrunner": {"id": 8, "name": "Jito Backrunner", "color": "#a78bfa", "strategy": "Backrun arb via Jito bundles"},
+        "liquidation_bot": {"id": 9, "name": "Liquidation Bot", "color": "#fb923c", "strategy": "Flashloan liquidations on lending"},
+        "yield_optimizer": {"id": 10, "name": "Yield Optimizer", "color": "#60a5fa", "strategy": "JLP delta-neutral + lending arb"},
+    }
+    from shared.config import (ENABLE_SNIPER, ENABLE_COPIER, ENABLE_ARB, ENABLE_MOMENTUM,
+                                ENABLE_LAUNCHER, ENABLE_VOLUME_BOT, ENABLE_ANTI_SNIPER)
+    enable_map = {
+        "graduation_sniper": ENABLE_SNIPER, "wallet_copier": ENABLE_COPIER,
+        "multi_dex_arb": ENABLE_ARB, "momentum_scanner": ENABLE_MOMENTUM,
+        "token_launcher": ENABLE_LAUNCHER, "volume_bot": ENABLE_VOLUME_BOT,
+        "anti_sniper": ENABLE_ANTI_SNIPER, "jito_backrunner": True,
+        "liquidation_bot": True, "yield_optimizer": True,
+    }
+    bots = []
+    all_trades = db.get_recent_trades(limit=500) if db.is_available() else []
+    for key, meta in BOT_IDS.items():
+        bot_trades = [t for t in all_trades if t.get("bot") == key]
+        wins = [t for t in bot_trades if (t.get("realized_pnl_sol") or 0) > 0]
+        pnl = sum(t.get("realized_pnl_sol", 0) for t in bot_trades)
+        open_pos = [p for p in portfolio.open_positions.values() if getattr(p, "bot", "") == key]
+        bots.append({
+            **meta, "key": key,
+            "enabled": enable_map.get(key, False),
+            "status": "live" if enable_map.get(key, False) else "paused",
+            "pnl": round(pnl, 4), "trades": len(bot_trades),
+            "winRate": round(len(wins) / max(1, len(bot_trades)), 3),
+            "openPositions": len(open_pos),
+        })
+    return {"bots": bots}
+
+
+@app.get("/launched-tokens")
+async def get_launched_tokens():
+    tokens = db.get_launched_tokens() if db.is_available() else []
+    return {"tokens": tokens}
+
+
+@app.post("/config")
+async def save_config(body: dict):
+    """Save risk settings to .env override file."""
+    import os
+    env_path = os.environ.get("ENV_FILE", "/app/.env.override")
+    mapping = {
+        "maxPos": "MAX_POSITION_SOL", "maxConcurrent": "MAX_CONCURRENT_POSITIONS",
+        "maxDailyLoss": "MAX_DAILY_LOSS_SOL", "emergencyPct": "EMERGENCY_EXIT_PCT",
+    }
+    lines = []
+    for k, env_key in mapping.items():
+        if k in body:
+            lines.append(f"{env_key}={body[k]}")
+    if body.get("exitStages"):
+        stages_str = ";".join(f"{s['trigger']}:{s['sell']}" for s in body["exitStages"])
+        lines.append(f"EXIT_STAGES={stages_str}")
+    if lines:
+        try:
+            with open(env_path, "a") as f:
+                f.write("\n# Dashboard override " + utcnow() + "\n")
+                f.write("\n".join(lines) + "\n")
+            log.info(f"Config saved: {lines}")
+            return {"ok": True, "saved": lines}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    return {"ok": False, "error": "nothing to save"}
+
+
+
 @app.post("/blacklist/creator")
 async def blacklist_creator(body: dict):
     address = body.get("address", "").strip()
